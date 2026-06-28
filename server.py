@@ -11,8 +11,9 @@ import uvicorn
 # ---------- إعدادات ----------
 app = FastAPI(title="Gemini Image Editor")
 
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")  # سيؤخذ من متغيرات البيئة في Render
-MODEL = "gemini-2.0-flash-exp"  # يمكنك تغييره إلى "gemini-2.5-flash-image" إذا كان متاحاً
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+# اقرأ النموذج من متغير البيئة، مع قيمة افتراضية آمنة
+MODEL = os.getenv("MODEL", "gemini-2.5-flash-image")
 
 if not GEMINI_API_KEY:
     raise ValueError("GEMINI_API_KEY environment variable not set")
@@ -20,7 +21,6 @@ if not GEMINI_API_KEY:
 # ---------- دالة معالجة الصورة ----------
 def edit_image_with_gemini(image_bytes: bytes, prompt: str) -> bytes:
     """إرسال الصورة والتعليمات إلى Gemini API وإرجاع الصورة المعدلة"""
-    # تحويل الصورة إلى Base64
     b64_image = base64.b64encode(image_bytes).decode('utf-8')
     
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{MODEL}:generateContent?key={GEMINI_API_KEY}"
@@ -38,13 +38,11 @@ def edit_image_with_gemini(image_bytes: bytes, prompt: str) -> bytes:
     
     headers = {"Content-Type": "application/json"}
     
-    # إرسال الطلب مع مهلة 60 ثانية
     response = requests.post(url, json=payload, headers=headers, timeout=60)
-    response.raise_for_status()  # في حال خطأ HTTP
+    response.raise_for_status()
     
     data = response.json()
     
-    # استخراج الصورة من الرد
     try:
         parts = data["candidates"][0]["content"]["parts"]
         for part in parts:
@@ -61,20 +59,14 @@ async def process_image(
     file: UploadFile = File(...),
     prompt: str = "قم بتحسين هذه الصورة الشخصية: أزل الخلفية واجعلها بيضاء، حسّن الإضاءة، ونعم البشرة بلطف مع الحفاظ على الملامح الطبيعية، ثم قص الصورة من أعلى الرأس إلى منتصف الصدر."
 ):
-    """استقبال صورة وإرجاعها بعد التعديل حسب التعليمات"""
     try:
-        # قراءة الصورة
         image_bytes = await file.read()
-        # التحقق من أنها صورة صالحة
         try:
             Image.open(io.BytesIO(image_bytes))
         except Exception:
             raise HTTPException(status_code=422, detail="الملف المرفوع ليس صورة صالحة.")
         
-        # معالجة
         edited_bytes = edit_image_with_gemini(image_bytes, prompt)
-        
-        # إرجاع الصورة
         return Response(content=edited_bytes, media_type="image/jpeg")
     
     except requests.exceptions.Timeout:
